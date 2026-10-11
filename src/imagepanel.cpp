@@ -5,6 +5,8 @@
 #include "maskcanvas.h"
 
 #include <QApplication>
+#include <QKeyEvent>
+#include <QMimeData>
 #include <QClipboard>
 #include <QComboBox>
 #include <QDateTime>
@@ -41,7 +43,8 @@ ImagePanel::ImagePanel(Mode mode, QWidget *parent) : QWidget(parent), m_mode(mod
     m_prompt->setFixedHeight(m_prompt->fontMetrics().lineSpacing() * 4 + 12);
 
     m_size = new QComboBox(this);
-    m_size->addItem(tr("Auto"), QStringLiteral("auto"));
+    // In Edit mode "auto" keeps the photo's own aspect ratio.
+    m_size->addItem(edit ? tr("Same as photo") : tr("Auto"), QStringLiteral("auto"));
     m_size->addItem(tr("Square (1024×1024)"), QStringLiteral("1024x1024"));
     m_size->addItem(tr("Landscape (1536×1024)"), QStringLiteral("1536x1024"));
     m_size->addItem(tr("Portrait (1024×1536)"), QStringLiteral("1024x1536"));
@@ -178,7 +181,9 @@ QWidget *ImagePanel::createSourceArea()
 
     m_canvas = new MaskCanvas(area);
     auto *openButton = new QPushButton(tr("Open…"), area);
+    openButton->setToolTip(tr("Open a photo (Ctrl+O)"));
     auto *pasteButton = new QPushButton(tr("Paste"), area);
+    pasteButton->setToolTip(tr("Paste a photo from the clipboard (Ctrl+Shift+V)"));
 
     m_brushSize = new QSlider(Qt::Horizontal, area);
     m_brushSize->setRange(8, 160);
@@ -188,6 +193,8 @@ QWidget *ImagePanel::createSourceArea()
     m_canvas->setBrushSize(m_brushSize->value());
 
     m_clearMaskButton = new QPushButton(tr("Clear Mask"), area);
+    m_brushLabel = new QLabel(tr("Brush:"), area);
+    // Sits right under the toolbar, where it's seen while painting.
     m_maskHint = new QLabel(area);
     m_maskHint->setWordWrap(true);
 
@@ -195,15 +202,26 @@ QWidget *ImagePanel::createSourceArea()
     toolbar->addWidget(openButton);
     toolbar->addWidget(pasteButton);
     toolbar->addStretch();
-    toolbar->addWidget(new QLabel(tr("Brush:"), area));
+    toolbar->addWidget(m_brushLabel);
     toolbar->addWidget(m_brushSize);
     toolbar->addWidget(m_clearMaskButton);
 
     auto *layout = new QVBoxLayout(area);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addLayout(toolbar);
-    layout->addWidget(m_canvas, 1);
     layout->addWidget(m_maskHint);
+    layout->addWidget(m_canvas, 1);
+
+    auto addShortcut = [this](const QKeySequence &key, auto slot) {
+        auto *shortcut = new QShortcut(key, this);
+        shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(shortcut, &QShortcut::activated, this, slot);
+    };
+    addShortcut(QKeySequence::Open, [this] { openSource(); });
+    addShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V), [this] { pasteSource(); });
+    addShortcut(QKeySequence::Undo, [this] { m_canvas->undo(); });
+    // Ctrl+V in the prompt pastes the photo when the clipboard holds only an image.
+    m_prompt->installEventFilter(this);
 
     connect(openButton, &QPushButton::clicked, this, &ImagePanel::openSource);
     connect(pasteButton, &QPushButton::clicked, this, &ImagePanel::pasteSource);
@@ -223,17 +241,22 @@ void ImagePanel::updateMaskControls()
     const bool supported = !m_provider || m_provider->supportsMask();
     const bool hasImage = !m_canvas->image().isNull();
     m_canvas->setMaskingEnabled(supported);
-    m_brushSize->setEnabled(supported && hasImage);
+    // Hide rather than grey out: on a provider without masks these tools never apply.
+    m_brushLabel->setVisible(supported);
+    m_brushSize->setVisible(supported);
+    m_clearMaskButton->setVisible(supported);
+    m_brushSize->setEnabled(hasImage);
     m_clearMaskButton->setEnabled(m_canvas->hasMask());
 
     if (!supported)
         m_maskHint->setText(tr("%1 can't use a mask; the model decides what to change.")
                                 .arg(m_provider->displayName()));
     else if (m_canvas->hasMask())
-        m_maskHint->setText(tr("Only the painted area will be changed."));
+        m_maskHint->setText(tr("Only the painted area will be changed. Right-drag erases, "
+                               "Ctrl+Z undoes."));
     else if (hasImage)
-        m_maskHint->setText(tr("Optional: paint over the area to change. Without a mask the "
-                               "model may change anything."));
+        m_maskHint->setText(tr("Optional: paint over the area to change (right-drag erases). "
+                               "Without a mask the model may change anything."));
     else
         m_maskHint->clear();
 }
@@ -283,10 +306,24 @@ void ImagePanel::useCurrent()
     const QImage image = m_view->image();
     if (image.isNull())
         return;
-    if (m_mode == Mode::Edit)
+    if (m_mode == Mode::Edit) {
         setSourceImage(image);
-    else
+        setStatus(tr("The result is now the source."));
+    } else
         emit editRequested(image);
+}
+
+bool ImagePanel::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_prompt && event->type() == QEvent::KeyPress
+        && static_cast<QKeyEvent *>(event)->matches(QKeySequence::Paste)) {
+        const QMimeData *clip = QApplication::clipboard()->mimeData();
+        if (clip && clip->hasImage() && !clip->hasText()) {
+            pasteSource();
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void ImagePanel::setProvider(ImageProvider *provider)

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QImage>
+#include <QList>
+#include <QPainterPath>
 #include <QWidget>
 
 // Shows the photo being edited and lets the user paint over the area the model
@@ -21,6 +23,9 @@ public:
 
     bool hasMask() const { return m_hasStrokes; }
     void clearMask();
+    // Reverts the last stroke or Clear (up to kUndoLimit steps).
+    void undo();
+    bool canUndo() const { return !m_undo.isEmpty(); }
     // Mask in OpenAI's convention: same size as the image, opaque everywhere
     // except fully transparent where the user painted. Null if nothing painted.
     QImage mask() const;
@@ -44,12 +49,20 @@ private:
     QRectF imageRect() const;
     QPointF toImage(const QPointF &widgetPos) const;
     void strokeTo(const QPointF &widgetPos);
+    void pushUndo();
+    void strokesChanged();
+    static bool isImageFile(const QUrl &url);
+
+    static constexpr int kUndoLimit = 20;
 
     QImage m_image;
     QImage m_strokes; // ARGB, image-sized; painted pixels are opaque
     bool m_hasStrokes = false;
     bool m_maskingEnabled = true;
     bool m_painting = false;
+    bool m_erasing = false;
+    QList<QImage> m_undo;
+    QPainterPath m_outline; // painted region in image coordinates, for the outline
     int m_brushSize = 40;
     QPointF m_lastImagePos;
     QPointF m_hoverPos{-1, -1};

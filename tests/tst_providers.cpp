@@ -224,6 +224,26 @@ private slots:
 
         canvas.clearMask();
         QVERIFY(canvas.mask().isNull());
+
+        // Clear Mask is undoable.
+        canvas.undo();
+        QVERIFY(canvas.hasMask());
+
+        // Right-drag over the whole stroke erases it.
+        auto send = [&](QEvent::Type type, Qt::MouseButton button, Qt::MouseButtons buttons) {
+            QMouseEvent e(type, QPointF(100, 100), QPointF(100, 100), button, buttons,
+                          Qt::NoModifier);
+            QCoreApplication::sendEvent(&canvas, &e);
+        };
+        canvas.setBrushSize(60);
+        send(QEvent::MouseButtonPress, Qt::RightButton, Qt::RightButton);
+        send(QEvent::MouseButtonRelease, Qt::RightButton, Qt::NoButton);
+        QVERIFY(!canvas.hasMask());
+
+        // ...and undoing the erase brings it back.
+        canvas.undo();
+        QVERIFY(canvas.hasMask());
+        QCOMPARE(qAlpha(canvas.mask().pixel(50, 50)), 0);
     }
 
     void settingsRoundTrip()

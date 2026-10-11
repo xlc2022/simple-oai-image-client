@@ -37,6 +37,9 @@ public:
     // Edit mode: replace the source photo (clears any mask).
     void setSourceImage(const QImage &image);
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 signals:
     // Generate mode: the user wants to edit the shown result.
     void editRequested(const QImage &image);
@@ -80,5 +83,6 @@ private:
     MaskCanvas *m_canvas = nullptr;
     QSlider *m_brushSize = nullptr;
     QPushButton *m_clearMaskButton = nullptr;
+    QLabel *m_brushLabel = nullptr;
     QLabel *m_maskHint = nullptr;
 };
