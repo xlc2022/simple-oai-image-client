@@ -24,7 +24,8 @@ constexpr int kStripIcon = 72;
 // Thumbnails keep their real colours when selected; selection is a frame.
 const char *kFramedItems =
     "QListWidget::item { border: 2px solid transparent; padding: 2px; }"
-    "QListWidget::item:selected { border-color: palette(highlight); background: transparent; }";
+    "QListWidget::item:selected { border-color: palette(highlight); background: transparent;"
+    " color: palette(text); }";
 
 QIcon untintedIcon(const QPixmap &pixmap)
 {
@@ -46,7 +47,9 @@ HistoryPanel::HistoryPanel(HistoryStore *store, QWidget *parent) : QWidget(paren
     m_grid->setResizeMode(QListView::Adjust);
     m_grid->setMovement(QListView::Static);
     m_grid->setIconSize(QSize(kGridIcon, kGridIcon));
-    m_grid->setGridSize(QSize(kGridIcon + 16, kGridIcon + 16));
+    // Room for a two-line caption (prompt, date) under each thumbnail.
+    m_grid->setGridSize(QSize(kGridIcon + 16, kGridIcon + 16 + 2 * m_grid->fontMetrics().height()));
+    m_grid->setWordWrap(true);
     m_grid->setUniformItemSizes(true);
     m_grid->setStyleSheet(QString::fromLatin1(kFramedItems));
 
@@ -98,12 +101,17 @@ HistoryPanel::HistoryPanel(HistoryStore *store, QWidget *parent) : QWidget(paren
     auto *openFolder = new QPushButton(tr("Open Folder"), this);
     openFolder->setToolTip(tr("Show this entry's files"));
 
+    m_deleteButton->setShortcut(QKeySequence::Delete);
+    m_deleteButton->setToolTip(tr("Delete this entry (Del)"));
+
+    // Delete stands apart so it's never one slip away from Copy or Save.
     auto *actions = new QHBoxLayout;
     actions->addWidget(m_reuseButton);
     actions->addWidget(m_editButton);
     actions->addStretch();
-    actions->addWidget(openFolder);
     actions->addWidget(m_deleteButton);
+    actions->addSpacing(24);
+    actions->addWidget(openFolder);
     actions->addWidget(m_copyButton);
     actions->addWidget(m_saveButton);
 
@@ -128,6 +136,10 @@ HistoryPanel::HistoryPanel(HistoryStore *store, QWidget *parent) : QWidget(paren
 
     connect(m_search, &QLineEdit::textChanged, this, &HistoryPanel::applyFilter);
     connect(m_grid, &QListWidget::currentRowChanged, this, &HistoryPanel::showEntry);
+    connect(m_grid, &QListWidget::itemDoubleClicked, this, [this] {
+        if (const HistoryEntry *entry = currentEntry())
+            emit reuseRequested(*entry);
+    });
     connect(m_images, &QListWidget::currentRowChanged, this, &HistoryPanel::showImage);
     connect(m_reuseButton, &QPushButton::clicked, this, [this] {
         if (const HistoryEntry *entry = currentEntry())
@@ -158,17 +170,37 @@ void HistoryPanel::reload(const QString &selectId)
     m_entries = m_store->entries();
     m_grid->clear();
     for (int i = 0; i < m_entries.size(); ++i) {
-        const HistoryEntry &entry = m_entries[i];
-        auto *item = new QListWidgetItem(untintedIcon(QPixmap(entry.thumbnailFile)), QString(), m_grid);
-        item->setData(kEntryRole, i);
-        item->setToolTip(entry.prompt);
-        if (entry.id == keep)
+        QListWidgetItem *item = createItem(i, i);
+        if (m_entries[i].id == keep)
             m_grid->setCurrentItem(item);
     }
-    applyFilter();
     if (!m_grid->currentItem() && m_grid->count() > 0)
         m_grid->setCurrentRow(0);
-    showEntry(m_grid->currentRow());
+    applyFilter();
+}
+
+void HistoryPanel::addEntry(const HistoryEntry &entry)
+{
+    // Appended to m_entries so existing items' indices stay valid; shown first in the grid.
+    m_entries.append(entry);
+    QListWidgetItem *item = createItem(int(m_entries.size()) - 1, 0);
+    if (!m_grid->currentItem())
+        m_grid->setCurrentItem(item);
+    applyFilter();
+}
+
+QListWidgetItem *HistoryPanel::createItem(int entryIndex, int row)
+{
+    const HistoryEntry &entry = m_entries[entryIndex];
+    auto *item = new QListWidgetItem(untintedIcon(QPixmap(entry.thumbnailFile)), QString());
+    const QFontMetrics fm = m_grid->fontMetrics();
+    item->setText(fm.elidedText(entry.prompt, Qt::ElideRight, kGridIcon) + QLatin1Char('\n')
+                  + QLocale().toString(entry.created.date(), QLocale::ShortFormat));
+    item->setTextAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    item->setData(kEntryRole, entryIndex);
+    item->setToolTip(entry.prompt);
+    m_grid->insertItem(row, item);
+    return item;
 }
 
 void HistoryPanel::applyFilter()
@@ -186,6 +218,18 @@ void HistoryPanel::applyFilter()
                          ? tr("Nothing here yet. Everything you generate or edit is kept here.")
                          : tr("No prompts match \"%1\".").arg(needle));
     m_gridStack->setCurrentWidget(visible > 0 ? static_cast<QWidget *>(m_grid) : m_empty);
+    // An empty store already says so on the left; don't repeat it on the right.
+    m_details->setVisible(!m_entries.isEmpty());
+
+    // Never leave the details showing an entry the filter just hid.
+    if (QListWidgetItem *cur = m_grid->currentItem(); !cur || cur->isHidden()) {
+        int first = -1;
+        for (int row = 0; row < m_grid->count() && first < 0; ++row)
+            if (!m_grid->item(row)->isHidden())
+                first = row;
+        m_grid->setCurrentRow(first); // -1 clears
+    }
+    showEntry(m_grid->currentRow());
 }
 
 const HistoryEntry *HistoryPanel::currentEntry() const

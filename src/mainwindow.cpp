@@ -71,7 +71,7 @@ MainWindow::MainWindow(QWidget *parent)
                                          .arg(m_history.root()),
                                      8000);
         else
-            m_historyPanel->reload(stored.id);
+            m_historyPanel->addEntry(stored);
     };
     connect(m_generatePanel, &ImagePanel::completed, this, record);
     connect(m_editPanel, &ImagePanel::completed, this, record);

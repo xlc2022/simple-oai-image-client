@@ -8,6 +8,7 @@
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QListWidgetItem;
 class QPushButton;
 class QStackedLayout;
 class ImageView;
@@ -23,6 +24,8 @@ public:
 
     // Re-reads the store; keeps the selection when the entry still exists.
     void reload(const QString &selectId = QString());
+    // Adds a newly stored entry at the top without rebuilding the grid.
+    void addEntry(const HistoryEntry &entry);
 
 signals:
     void reuseRequested(const HistoryEntry &entry);
@@ -30,6 +33,7 @@ signals:
 
 private:
     void applyFilter();
+    QListWidgetItem *createItem(int entryIndex, int row);
     void showEntry(int row);
     void showImage(int index);
     void deleteCurrent();
