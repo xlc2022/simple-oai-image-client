@@ -22,6 +22,19 @@ struct GenerateOptions {
     int count = 1;
 };
 
+// Edit an existing image; transparent pixels in `mask` (same size as `image`)
+// mark the area to change. A null mask lets the model change anything.
+struct EditOptions : GenerateOptions {
+    QImage image;
+    QImage mask;
+};
+
+// A request body with its Content-Type.
+struct EncodedBody {
+    QByteArray data;
+    QByteArray contentType;
+};
+
 // Images decoded from a response, or the reason there are none.
 struct ImageResult {
     QList<QImage> images;
@@ -58,12 +71,20 @@ public:
     // Whether GenerateOptions::quality is sent to the API.
     virtual bool supportsQuality() const { return true; }
     virtual QByteArray generateBody(const GenerateOptions &options) const = 0;
-    // Decodes a successful (HTTP 2xx) generation response.
-    virtual ImageResult parseGenerateResponse(const QByteArray &body) const = 0;
 
-    // Sends a generation request; emits imagesReady() or requestFailed().
+    // HTTP request and body for an image edit call.
+    virtual QNetworkRequest editRequest() const = 0;
+    virtual EncodedBody editBody(const EditOptions &options) const = 0;
+    // Whether EditOptions::mask is sent to the API.
+    virtual bool supportsMask() const { return true; }
+
+    // Decodes a successful (HTTP 2xx) generation or edit response.
+    virtual ImageResult parseImageResponse(const QByteArray &body) const = 0;
+
+    // Send a request; each emits imagesReady() or requestFailed().
     // Only one request runs at a time; a new one cancels the previous.
     void generate(const GenerateOptions &options);
+    void edit(const EditOptions &options);
     void cancel();
     bool isBusy() const { return !m_pending.isNull(); }
 
@@ -72,12 +93,20 @@ public:
                                                  const QString &apiKey,
                                                  const QString &model);
 
+    // Longest side, in pixels, of images uploaded for editing. Larger photos are
+    // scaled down first: the models' output is at most 1536 px anyway.
+    static constexpr int kMaxUploadSide = 2048;
+    // `image` scaled to fit kMaxUploadSide, encoded as PNG.
+    static QByteArray encodeForUpload(const QImage &image);
+
 signals:
     void connectionTested(bool ok, const QString &message);
     void imagesReady(const QList<QImage> &images);
     void requestFailed(const QString &message);
 
 protected:
+    void send(QNetworkRequest request, const EncodedBody &body);
+
     // Best-effort human-readable error from an API error reply.
     static QString errorMessage(QNetworkReply *reply, const QByteArray &body);
 

@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Test)
+find_package(Qt6 REQUIRED COMPONENTS Test Widgets)
 
 qt_add_executable(tst_providers tst_providers.cpp)
 target_link_libraries(tst_providers PRIVATE imageclient_core Qt6::Test)

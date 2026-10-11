@@ -25,6 +25,17 @@ thumbnails when there are several; **Copy** puts the shown image on the clipboar
 With OpenRouter, size is sent as an aspect ratio and the image count may be ignored by
 the model, since OpenRouter serves image models through its chat API.
 
+## Editing photos
+
+On the **Edit** tab, open, drop or paste a photo, describe the change and press **Edit**.
+To limit the change to part of the photo, paint over that area with the brush first
+(OpenAI only; **Clear Mask** removes it). Photos larger than 2048 px are scaled down
+before upload. **Use as Source** keeps editing from a result, and **Edit This…** on the
+Generate tab sends a generated image here.
+
+With OpenRouter there is no mask: the photo and prompt are sent as a chat message and the
+model decides what to change.
+
 ## Building
 
 Requires CMake 3.21+, a C++17 compiler and Qt 6.4 or newer (Core, Gui, Widgets, Network).

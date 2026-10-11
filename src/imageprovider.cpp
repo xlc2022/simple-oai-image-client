@@ -3,6 +3,7 @@
 #include "openaiprovider.h"
 #include "openrouterprovider.h"
 
+#include <QBuffer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -46,18 +47,40 @@ void ImageProvider::testConnection()
 
 void ImageProvider::generate(const GenerateOptions &options)
 {
+    send(generateRequest(), {generateBody(options), "application/json"});
+}
+
+void ImageProvider::edit(const EditOptions &options)
+{
+    send(editRequest(), editBody(options));
+}
+
+QByteArray ImageProvider::encodeForUpload(const QImage &image)
+{
+    QImage scaled = image;
+    if (qMax(image.width(), image.height()) > kMaxUploadSide)
+        scaled = image.scaled(kMaxUploadSide, kMaxUploadSide, Qt::KeepAspectRatio,
+                              Qt::SmoothTransformation);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    scaled.save(&buffer, "PNG");
+    return bytes;
+}
+
+void ImageProvider::send(QNetworkRequest request, const EncodedBody &body)
+{
     cancel();
     if (m_apiKey.isEmpty()) {
         emit requestFailed(tr("No API key is set. Add one in File → Settings."));
         return;
     }
 
-    QNetworkRequest request = generateRequest();
-    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Content-Type", body.contentType);
     // Image generation routinely takes a minute or more.
     request.setTransferTimeout(5 * 60 * 1000);
 
-    QNetworkReply *reply = m_network->post(request, generateBody(options));
+    QNetworkReply *reply = m_network->post(request, body.data);
     reply->setParent(this);
     m_pending = reply;
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
@@ -72,7 +95,7 @@ void ImageProvider::generate(const GenerateOptions &options)
             emit requestFailed(errorMessage(reply, body));
             return;
         }
-        const ImageResult result = parseGenerateResponse(body);
+        const ImageResult result = parseImageResponse(body);
         if (!result.error.isEmpty())
             emit requestFailed(result.error);
         else
