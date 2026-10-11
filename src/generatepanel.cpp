@@ -15,7 +15,9 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QFileInfo>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QShortcut>
 #include <QSpinBox>
@@ -47,8 +49,11 @@ GeneratePanel::GeneratePanel(QWidget *parent) : QWidget(parent)
     m_count->setRange(1, 4);
 
     m_generateButton = new QPushButton(tr("Generate"), this);
-    m_generateButton->setDefault(true);
-    m_generateButton->setToolTip(tr("Generate (Ctrl+Enter)"));
+    m_generateButton->setToolTip(tr("Generate (Ctrl+Enter). Press Esc to cancel."));
+    // Keep the width stable when the label swaps to "Cancel".
+    const QFontMetrics fm = m_generateButton->fontMetrics();
+    m_generateButton->setMinimumWidth(
+        qMax(fm.horizontalAdvance(tr("Generate")), fm.horizontalAdvance(tr("Cancel"))) + 32);
 
     auto *options = new QHBoxLayout;
     options->addWidget(new QLabel(tr("Size:"), this));
@@ -65,6 +70,18 @@ GeneratePanel::GeneratePanel(QWidget *parent) : QWidget(parent)
     m_status = new QLabel(this);
     m_status->setWordWrap(true);
     m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    // Reserve a line so the preview doesn't jump when the first status appears.
+    m_status->setMinimumHeight(m_status->fontMetrics().height());
+
+    m_progress = new QProgressBar(this);
+    m_progress->setRange(0, 0); // indeterminate
+    m_progress->setTextVisible(false);
+    m_progress->setMaximumWidth(160);
+    m_progress->hide();
+
+    auto *statusRow = new QHBoxLayout;
+    statusRow->addWidget(m_progress);
+    statusRow->addWidget(m_status, 1);
 
     m_view = new ImageView(this);
     m_view->setPlaceholderText(tr("Your image will appear here."));
@@ -74,8 +91,13 @@ GeneratePanel::GeneratePanel(QWidget *parent) : QWidget(parent)
     m_thumbnails->setFlow(QListView::LeftToRight);
     m_thumbnails->setWrapping(false);
     m_thumbnails->setIconSize(QSize(96, 96));
-    m_thumbnails->setFixedHeight(96 + 24);
+    m_thumbnails->setFixedHeight(96 + 40);
+    m_thumbnails->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_thumbnails->setMovement(QListView::Static);
+    // Show selection as a frame; the default highlight tints the icon and misrepresents colours.
+    m_thumbnails->setStyleSheet(QStringLiteral(
+        "QListWidget::item { border: 2px solid transparent; padding: 2px; }"
+        "QListWidget::item:selected { border-color: palette(highlight); background: transparent; }"));
     m_thumbnails->hide();
 
     m_saveButton = new QPushButton(tr("Save…"), this);
@@ -91,7 +113,7 @@ GeneratePanel::GeneratePanel(QWidget *parent) : QWidget(parent)
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(m_prompt);
     layout->addLayout(options);
-    layout->addWidget(m_status);
+    layout->addLayout(statusRow);
     layout->addWidget(m_view, 1);
     layout->addWidget(m_thumbnails);
     layout->addLayout(actions);
@@ -108,6 +130,12 @@ GeneratePanel::GeneratePanel(QWidget *parent) : QWidget(parent)
                 startOrCancel();
         });
     }
+    auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    escape->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(escape, &QShortcut::activated, this, [this] {
+        if (m_provider && m_provider->isBusy())
+            startOrCancel();
+    });
     connect(m_thumbnails, &QListWidget::currentRowChanged, this, &GeneratePanel::selectResult);
     connect(m_saveButton, &QPushButton::clicked, this, &GeneratePanel::saveCurrent);
     connect(m_copyButton, &QPushButton::clicked, this, &GeneratePanel::copyCurrent);
@@ -120,6 +148,11 @@ void GeneratePanel::setProvider(ImageProvider *provider)
         m_provider->disconnect(this);
     m_provider = provider;
     setBusy(false);
+
+    const bool quality = !provider || provider->supportsQuality();
+    m_quality->setEnabled(quality);
+    m_quality->setToolTip(quality ? QString() : tr("Not supported by %1").arg(provider->displayName()));
+
     if (!provider)
         return;
     connect(provider, &ImageProvider::imagesReady, this, &GeneratePanel::showResults);
@@ -131,13 +164,13 @@ void GeneratePanel::startOrCancel()
     if (m_provider && m_provider->isBusy()) {
         m_provider->cancel();
         setBusy(false);
-        m_status->setText(tr("Cancelled."));
+        setStatus(tr("Cancelled."));
         return;
     }
 
     const QString prompt = m_prompt->toPlainText().trimmed();
     if (prompt.isEmpty()) {
-        m_status->setText(tr("Describe what you want to see first."));
+        setStatus(tr("Describe what you want to see first."));
         m_prompt->setFocus();
         return;
     }
@@ -161,11 +194,11 @@ void GeneratePanel::setBusy(bool busy)
     m_generateButton->setText(busy ? tr("Cancel") : tr("Generate"));
     m_prompt->setReadOnly(busy);
     m_size->setEnabled(!busy);
-    m_quality->setEnabled(!busy);
+    m_quality->setEnabled(!busy && (!m_provider || m_provider->supportsQuality()));
     m_count->setEnabled(!busy);
+    m_progress->setVisible(busy);
     if (busy) {
         m_elapsed.start();
-        m_status->setStyleSheet(QString());
         updateElapsed();
         m_ticker->start();
     } else {
@@ -175,34 +208,51 @@ void GeneratePanel::setBusy(bool busy)
 
 void GeneratePanel::updateElapsed()
 {
-    m_status->setText(tr("Generating… %1 s").arg(m_elapsed.elapsed() / 1000));
+    setStatus(tr("Generating… %1 s").arg(m_elapsed.elapsed() / 1000));
 }
 
 void GeneratePanel::showResults(const QList<QImage> &images)
 {
-    const qint64 seconds = m_elapsed.isValid() ? m_elapsed.elapsed() / 1000 : 0;
+    // Only meaningful if a request was actually timed.
+    const qint64 seconds = m_ticker->isActive() ? m_elapsed.elapsed() / 1000 : 0;
     setBusy(false);
     m_results = images;
 
     m_thumbnails->clear();
-    for (const QImage &image : images) {
-        auto *item = new QListWidgetItem(m_thumbnails);
-        item->setIcon(QIcon(QPixmap::fromImage(
-            image.scaled(96, 96, Qt::KeepAspectRatio, Qt::SmoothTransformation))));
+    for (int i = 0; i < images.size(); ++i) {
+        const QPixmap thumb = QPixmap::fromImage(
+            images[i].scaled(96, 96, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        QIcon icon;
+        icon.addPixmap(thumb, QIcon::Normal);
+        icon.addPixmap(thumb, QIcon::Selected);
+        auto *item = new QListWidgetItem(icon, QString(), m_thumbnails);
+        item->setToolTip(tr("Image %1 of %2").arg(i + 1).arg(images.size()));
     }
     m_thumbnails->setVisible(images.size() > 1);
     m_thumbnails->setCurrentRow(0);
     selectResult(0);
 
-    m_status->setText(images.size() == 1 ? tr("Done in %1 s.").arg(seconds)
-                                         : tr("%1 images in %2 s.").arg(images.size()).arg(seconds));
+    setStatus(images.size() == 1 ? tr("Done in %1 s.").arg(seconds)
+                                 : tr("%1 images in %2 s.").arg(images.size()).arg(seconds));
 }
 
 void GeneratePanel::showError(const QString &message)
 {
     setBusy(false);
-    m_status->setStyleSheet(QStringLiteral("color: #d64545;"));
-    m_status->setText(QStringLiteral("✘ ") + message);
+    setStatus(QStringLiteral("✘ ") + message, true);
+}
+
+void GeneratePanel::setStatus(const QString &text, bool error)
+{
+    if (error) {
+        // A red that keeps its contrast on both light and dark palettes.
+        const bool darkTheme = palette().color(QPalette::Window).lightness() < 128;
+        m_status->setStyleSheet(darkTheme ? QStringLiteral("color: #ff7b7b;")
+                                          : QStringLiteral("color: #c62828;"));
+    } else {
+        m_status->setStyleSheet(QString());
+    }
+    m_status->setText(text);
 }
 
 void GeneratePanel::selectResult(int index)
@@ -222,10 +272,25 @@ void GeneratePanel::saveCurrent()
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
     const QString suggested = QDir(dir).filePath(
         QStringLiteral("image-%1.png").arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss")));
-    const QString path = QFileDialog::getSaveFileName(this, tr("Save Image"), suggested,
-                                                      tr("PNG image (*.png);;JPEG image (*.jpg)"));
+    const QString pngFilter = tr("PNG image (*.png)");
+    const QString jpegFilter = tr("JPEG image (*.jpg *.jpeg)");
+    QString selectedFilter = pngFilter;
+    QString path = QFileDialog::getSaveFileName(this, tr("Save Image"), suggested,
+                                                pngFilter + QStringLiteral(";;") + jpegFilter,
+                                                &selectedFilter);
     if (path.isEmpty())
         return;
+
+    // QImage::save picks the format from the suffix, so make it match the chosen filter.
+    const bool wantJpeg = selectedFilter == jpegFilter;
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    const bool isJpeg = suffix == QLatin1String("jpg") || suffix == QLatin1String("jpeg");
+    if (wantJpeg != isJpeg || suffix.isEmpty()) {
+        if (!suffix.isEmpty())
+            path.chop(suffix.size() + 1);
+        path += wantJpeg ? QStringLiteral(".jpg") : QStringLiteral(".png");
+    }
+
     if (!image.save(path))
         QMessageBox::warning(this, tr("Save Image"), tr("Could not save to %1.").arg(path));
 }

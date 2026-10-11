@@ -17,6 +17,7 @@ public:
     QNetworkRequest connectionTestRequest() const override;
 
     QNetworkRequest generateRequest() const override;
+    bool supportsQuality() const override { return false; }
     QByteArray generateBody(const GenerateOptions &options) const override;
     ImageResult parseGenerateResponse(const QByteArray &body) const override;
 };

@@ -9,6 +9,7 @@
 class QComboBox;
 class QLabel;
 class QListWidget;
+class QProgressBar;
 class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
@@ -32,6 +33,7 @@ private:
     void setBusy(bool busy);
     void showResults(const QList<QImage> &images);
     void showError(const QString &message);
+    void setStatus(const QString &text, bool error = false);
     void selectResult(int index);
     void saveCurrent();
     void copyCurrent();
@@ -47,6 +49,7 @@ private:
     QSpinBox *m_count;
     QPushButton *m_generateButton;
     QLabel *m_status;
+    QProgressBar *m_progress;
     ImageView *m_view;
     QListWidget *m_thumbnails;
     QPushButton *m_saveButton;

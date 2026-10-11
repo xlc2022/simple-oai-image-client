@@ -55,6 +55,8 @@ public:
 
     // HTTP request and JSON body for an image generation call.
     virtual QNetworkRequest generateRequest() const = 0;
+    // Whether GenerateOptions::quality is sent to the API.
+    virtual bool supportsQuality() const { return true; }
     virtual QByteArray generateBody(const GenerateOptions &options) const = 0;
     // Decodes a successful (HTTP 2xx) generation response.
     virtual ImageResult parseGenerateResponse(const QByteArray &body) const = 0;
