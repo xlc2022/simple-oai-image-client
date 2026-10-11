@@ -75,6 +75,19 @@ QString AppSettings::defaultModel(ProviderKind kind)
     return {};
 }
 
+QStringList AppSettings::suggestedModels(ProviderKind kind)
+{
+    switch (kind) {
+    case ProviderKind::OpenAI:
+        return {QStringLiteral("gpt-image-1"), QStringLiteral("gpt-image-1-mini"),
+                QStringLiteral("gpt-image-2")};
+    case ProviderKind::OpenRouter:
+        return {QStringLiteral("openai/gpt-image-1"), QStringLiteral("openai/gpt-image-1-mini"),
+                QStringLiteral("openai/gpt-image-2")};
+    }
+    return {};
+}
+
 QString AppSettings::apiKeyEnvVar(ProviderKind kind)
 {
     switch (kind) {

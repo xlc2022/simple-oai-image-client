@@ -2,6 +2,7 @@
 
 #include "settingsdialog.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QLabel>
 #include <QMenuBar>
@@ -17,9 +18,20 @@ MainWindow::MainWindow(QWidget *parent)
     resize(960, 680);
 
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
-    fileMenu->addAction(tr("&Settings…"), QKeySequence::Preferences, this, &MainWindow::openSettings);
+    // The standard Preferences/Quit keys are unbound on Windows (and Preferences on GNOME).
+    QKeySequence prefsKey(QKeySequence::Preferences);
+    if (prefsKey.isEmpty())
+        prefsKey = QKeySequence(QStringLiteral("Ctrl+,"));
+    QKeySequence quitKey(QKeySequence::Quit);
+    if (quitKey.isEmpty())
+        quitKey = QKeySequence(QStringLiteral("Ctrl+Q"));
+
+    QAction *settingsAction =
+        fileMenu->addAction(tr("&Settings…"), prefsKey, this, &MainWindow::openSettings);
+    settingsAction->setMenuRole(QAction::PreferencesRole);
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("&Quit"), QKeySequence::Quit, qApp, &QApplication::quit);
+    QAction *quitAction = fileMenu->addAction(tr("&Quit"), quitKey, qApp, &QApplication::quit);
+    quitAction->setMenuRole(QAction::QuitRole);
 
     QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
     helpMenu->addAction(tr("&About"), this, [this] {

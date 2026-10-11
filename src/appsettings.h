@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 // Which backend the app talks to.
 enum class ProviderKind { OpenAI, OpenRouter };
@@ -24,6 +25,8 @@ public:
     void setModel(ProviderKind kind, const QString &model);
 
     static QString defaultModel(ProviderKind kind);
+    // Common image models offered in the Settings model picker; any id can still be typed.
+    static QStringList suggestedModels(ProviderKind kind);
     static QString apiKeyEnvVar(ProviderKind kind);
 
     // Stored key, or the environment variable when nothing is stored.

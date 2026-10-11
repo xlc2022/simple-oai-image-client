@@ -24,6 +24,9 @@ public:
 
     void accept() override;
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 private:
     struct ProviderFields {
         QString apiKey;
@@ -34,6 +37,7 @@ private:
     void storeFields(ProviderKind kind);
     void loadFields(ProviderKind kind);
     void testConnection();
+    void fitHeight();
 
     QNetworkAccessManager *m_network;
     AppSettings m_settings;
@@ -42,7 +46,7 @@ private:
 
     QComboBox *m_providerCombo;
     QLineEdit *m_apiKeyEdit;
-    QLineEdit *m_modelEdit;
+    QComboBox *m_modelCombo;
     QLabel *m_envHint;
     QPushButton *m_testButton;
     QLabel *m_testResult;

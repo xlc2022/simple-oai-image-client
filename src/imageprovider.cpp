@@ -32,6 +32,8 @@ void ImageProvider::testConnection()
     }
 
     QNetworkReply *reply = m_network->get(connectionTestRequest());
+    // Destroying the provider aborts the request instead of leaving it to finish unobserved.
+    reply->setParent(this);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         reply->deleteLater();
         const QByteArray body = reply->readAll();
