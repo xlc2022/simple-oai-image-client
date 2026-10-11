@@ -44,6 +44,51 @@ void ImageProvider::testConnection()
     });
 }
 
+void ImageProvider::generate(const GenerateOptions &options)
+{
+    cancel();
+    if (m_apiKey.isEmpty()) {
+        emit requestFailed(tr("No API key is set. Add one in File → Settings."));
+        return;
+    }
+
+    QNetworkRequest request = generateRequest();
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    // Image generation routinely takes a minute or more.
+    request.setTransferTimeout(5 * 60 * 1000);
+
+    QNetworkReply *reply = m_network->post(request, generateBody(options));
+    reply->setParent(this);
+    m_pending = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (m_pending == reply)
+            m_pending.clear();
+        if (reply->property("cancelled").toBool())
+            return;
+
+        const QByteArray body = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(errorMessage(reply, body));
+            return;
+        }
+        const ImageResult result = parseGenerateResponse(body);
+        if (!result.error.isEmpty())
+            emit requestFailed(result.error);
+        else
+            emit imagesReady(result.images);
+    });
+}
+
+void ImageProvider::cancel()
+{
+    if (QNetworkReply *reply = m_pending.data()) {
+        m_pending.clear();
+        reply->setProperty("cancelled", true);
+        reply->abort();
+    }
+}
+
 QString ImageProvider::errorMessage(QNetworkReply *reply, const QByteArray &body)
 {
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
