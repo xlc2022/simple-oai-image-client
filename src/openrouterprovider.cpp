@@ -43,9 +43,31 @@ QNetworkRequest OpenRouterProvider::generateRequest() const
 
 QByteArray OpenRouterProvider::generateBody(const GenerateOptions &options) const
 {
+    return chatBody(options, options.prompt);
+}
+
+QNetworkRequest OpenRouterProvider::editRequest() const
+{
+    // Edits are a chat message carrying the source image alongside the prompt.
+    return makeRequest(QStringLiteral("/chat/completions"));
+}
+
+EncodedBody OpenRouterProvider::editBody(const EditOptions &options) const
+{
+    const QString dataUrl = QStringLiteral("data:image/png;base64,")
+                            + QString::fromLatin1(encodeForUpload(options.image).toBase64());
+    const QJsonArray content{
+        QJsonObject{{"type", "text"}, {"text", options.prompt}},
+        QJsonObject{{"type", "image_url"}, {"image_url", QJsonObject{{"url", dataUrl}}}},
+    };
+    return {chatBody(options, content), "application/json"};
+}
+
+QByteArray OpenRouterProvider::chatBody(const GenerateOptions &options, const QJsonValue &content) const
+{
     QJsonObject body{
         {"model", model()},
-        {"messages", QJsonArray{QJsonObject{{"role", "user"}, {"content", options.prompt}}}},
+        {"messages", QJsonArray{QJsonObject{{"role", "user"}, {"content", content}}}},
         {"modalities", QJsonArray{"image", "text"}},
     };
     // Chat completions produce one image per request; extra images use "n" where supported.
@@ -57,7 +79,7 @@ QByteArray OpenRouterProvider::generateBody(const GenerateOptions &options) cons
     return QJsonDocument(body).toJson(QJsonDocument::Compact);
 }
 
-ImageResult OpenRouterProvider::parseGenerateResponse(const QByteArray &body) const
+ImageResult OpenRouterProvider::parseImageResponse(const QByteArray &body) const
 {
     // {"choices": [{"message": {"content": "...", "images": [
     //     {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}]}}]}

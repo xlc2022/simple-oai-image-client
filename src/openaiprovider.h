@@ -16,5 +16,7 @@ public:
 
     QNetworkRequest generateRequest() const override;
     QByteArray generateBody(const GenerateOptions &options) const override;
-    ImageResult parseGenerateResponse(const QByteArray &body) const override;
+    QNetworkRequest editRequest() const override;
+    EncodedBody editBody(const EditOptions &options) const override;
+    ImageResult parseImageResponse(const QByteArray &body) const override;
 };

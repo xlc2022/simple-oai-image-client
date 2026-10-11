@@ -2,6 +2,8 @@
 
 #include "imageprovider.h"
 
+#include <QJsonValue>
+
 // OpenRouter (openrouter.ai). It serves OpenAI's image models such as
 // openai/gpt-image-1 through its chat completions API with image output.
 class OpenRouterProvider : public ImageProvider
@@ -19,5 +21,11 @@ public:
     QNetworkRequest generateRequest() const override;
     bool supportsQuality() const override { return false; }
     QByteArray generateBody(const GenerateOptions &options) const override;
-    ImageResult parseGenerateResponse(const QByteArray &body) const override;
+    QNetworkRequest editRequest() const override;
+    EncodedBody editBody(const EditOptions &options) const override;
+    bool supportsMask() const override { return false; }
+    ImageResult parseImageResponse(const QByteArray &body) const override;
+
+private:
+    QByteArray chatBody(const GenerateOptions &options, const QJsonValue &content) const;
 };

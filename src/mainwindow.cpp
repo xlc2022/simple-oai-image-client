@@ -1,6 +1,6 @@
 #include "mainwindow.h"
 
-#include "generatepanel.h"
+#include "imagepanel.h"
 #include "imageprovider.h"
 #include "settingsdialog.h"
 
@@ -11,6 +11,7 @@
 #include <QMessageBox>
 #include <QNetworkAccessManager>
 #include <QStatusBar>
+#include <QTabWidget>
 #include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -43,8 +44,18 @@ MainWindow::MainWindow(QWidget *parent)
                                     QApplication::applicationVersion()));
     });
 
-    m_generatePanel = new GeneratePanel(this);
-    setCentralWidget(m_generatePanel);
+    m_tabs = new QTabWidget(this);
+    m_tabs->setDocumentMode(true);
+    m_generatePanel = new ImagePanel(ImagePanel::Mode::Generate, m_tabs);
+    m_editPanel = new ImagePanel(ImagePanel::Mode::Edit, m_tabs);
+    m_tabs->addTab(m_generatePanel, tr("&Generate"));
+    m_tabs->addTab(m_editPanel, tr("&Edit"));
+    setCentralWidget(m_tabs);
+
+    connect(m_generatePanel, &ImagePanel::editRequested, this, [this](const QImage &image) {
+        m_editPanel->setSourceImage(image);
+        m_tabs->setCurrentWidget(m_editPanel);
+    });
 
     m_providerStatus = new QLabel(this);
     statusBar()->addPermanentWidget(m_providerStatus);
@@ -54,8 +65,9 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    // The panel holds a QPointer to the provider; detach before the provider goes away.
+    // The panels hold QPointers to the providers; detach before the providers go away.
     m_generatePanel->setProvider(nullptr);
+    m_editPanel->setProvider(nullptr);
 }
 
 void MainWindow::promptForSetupIfNeeded()
@@ -77,10 +89,16 @@ void MainWindow::applySettings()
     const QString key = m_settings.effectiveApiKey(kind);
 
     m_generatePanel->setProvider(nullptr);
-    m_provider = key.isEmpty()
-                     ? nullptr
-                     : ImageProvider::create(kind, m_network, key, m_settings.model(kind));
-    m_generatePanel->setProvider(m_provider.get());
+    m_editPanel->setProvider(nullptr);
+    if (key.isEmpty()) {
+        m_generateProvider.reset();
+        m_editProvider.reset();
+    } else {
+        m_generateProvider = ImageProvider::create(kind, m_network, key, m_settings.model(kind));
+        m_editProvider = ImageProvider::create(kind, m_network, key, m_settings.model(kind));
+    }
+    m_generatePanel->setProvider(m_generateProvider.get());
+    m_editPanel->setProvider(m_editProvider.get());
 
     const QString providerName = kind == ProviderKind::OpenRouter ? tr("OpenRouter") : tr("OpenAI");
     m_providerStatus->setText(key.isEmpty()

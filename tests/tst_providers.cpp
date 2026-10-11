@@ -11,6 +11,9 @@
 
 #include "appsettings.h"
 #include "imageprovider.h"
+#include "maskcanvas.h"
+
+#include <QMouseEvent>
 
 namespace {
 QByteArray pngBase64(int w, int h)
@@ -89,12 +92,12 @@ private slots:
 
         const QByteArray response = "{\"data\":[{\"b64_json\":\"" + pngBase64(4, 6)
                                     + "\"},{\"b64_json\":\"" + pngBase64(2, 2) + "\"}]}";
-        const ImageResult result = provider->parseGenerateResponse(response);
+        const ImageResult result = provider->parseImageResponse(response);
         QVERIFY(result.error.isEmpty());
         QCOMPARE(result.images.size(), 2);
         QCOMPARE(result.images[0].size(), QSize(4, 6));
 
-        QVERIFY(!provider->parseGenerateResponse("{\"data\":[]}").error.isEmpty());
+        QVERIFY(!provider->parseImageResponse("{\"data\":[]}").error.isEmpty());
     }
 
     void openRouterGenerate()
@@ -122,15 +125,125 @@ private slots:
         const QByteArray response =
             "{\"choices\":[{\"message\":{\"content\":\"\",\"images\":[{\"type\":\"image_url\","
             "\"image_url\":{\"url\":\"data:image/png;base64," + pngBase64(3, 3) + "\"}}]}}]}";
-        const ImageResult result = provider->parseGenerateResponse(response);
+        const ImageResult result = provider->parseImageResponse(response);
         QVERIFY(result.error.isEmpty());
         QCOMPARE(result.images.size(), 1);
         QCOMPARE(result.images[0].size(), QSize(3, 3));
 
-        const ImageResult refusal = provider->parseGenerateResponse(
+        const ImageResult refusal = provider->parseImageResponse(
             "{\"choices\":[{\"message\":{\"content\":\"I can't draw that.\"}}]}");
         QVERIFY(refusal.images.isEmpty());
         QVERIFY(refusal.error.contains("I can't draw that."));
+    }
+
+    void openAiEdit()
+    {
+        QNetworkAccessManager nam;
+        auto provider = ImageProvider::create(ProviderKind::OpenAI, &nam, "k", "gpt-image-1");
+        QCOMPARE(provider->editRequest().url(), QUrl("https://api.openai.com/v1/images/edits"));
+        QVERIFY(provider->supportsMask());
+
+        EditOptions options;
+        options.prompt = "make it blue";
+        options.image = QImage(8, 8, QImage::Format_RGB32);
+        options.image.fill(Qt::red);
+        const EncodedBody plain = provider->editBody(options);
+        QVERIFY(plain.contentType.startsWith("multipart/form-data; boundary="));
+        const QByteArray boundary = plain.contentType.mid(plain.contentType.indexOf('=') + 1);
+        QVERIFY(plain.data.startsWith("--" + boundary + "\r\n"));
+        QVERIFY(plain.data.endsWith("--" + boundary + "--\r\n"));
+        QVERIFY(plain.data.contains("name=\"prompt\"\r\n\r\nmake it blue\r\n"));
+        QVERIFY(plain.data.contains("name=\"model\"\r\n\r\ngpt-image-1\r\n"));
+        QVERIFY(plain.data.contains("name=\"image\"; filename=\"image.png\"\r\nContent-Type: image/png"));
+        QVERIFY(!plain.data.contains("name=\"mask\""));
+
+        options.mask = QImage(8, 8, QImage::Format_ARGB32);
+        options.mask.fill(Qt::transparent);
+        QVERIFY(provider->editBody(options).data.contains("name=\"mask\"; filename=\"mask.png\""));
+    }
+
+    void uploadsAreDownscaled()
+    {
+        QImage big(4000, 3000, QImage::Format_RGB32);
+        big.fill(Qt::gray);
+        QImage decoded;
+        QVERIFY(decoded.loadFromData(ImageProvider::encodeForUpload(big), "PNG"));
+        QCOMPARE(decoded.size(), QSize(2048, 1536));
+
+        QImage small(100, 50, QImage::Format_RGB32);
+        small.fill(Qt::gray);
+        QVERIFY(decoded.loadFromData(ImageProvider::encodeForUpload(small), "PNG"));
+        QCOMPARE(decoded.size(), QSize(100, 50));
+    }
+
+    void openRouterEdit()
+    {
+        QNetworkAccessManager nam;
+        auto provider = ImageProvider::create(ProviderKind::OpenRouter, &nam, "k",
+                                              "openai/gpt-image-1");
+        QVERIFY(!provider->supportsMask());
+
+        EditOptions options;
+        options.prompt = "make it blue";
+        options.image = QImage(8, 8, QImage::Format_RGB32);
+        options.image.fill(Qt::red);
+        const EncodedBody body = provider->editBody(options);
+        QCOMPARE(body.contentType, QByteArray("application/json"));
+        const QJsonArray content = QJsonDocument::fromJson(body.data)
+                                       .object()["messages"].toArray()[0]
+                                       .toObject()["content"].toArray();
+        QCOMPARE(content.size(), 2);
+        QCOMPARE(content[0].toObject()["text"].toString(), QString("make it blue"));
+        QVERIFY(content[1].toObject()["image_url"].toObject()["url"].toString().startsWith(
+            "data:image/png;base64,"));
+    }
+
+    void maskCanvasProducesTransparentHole()
+    {
+        MaskCanvas canvas;
+        canvas.resize(200, 200); // the 100x100 photo sits centred, unscaled
+        QImage photo(100, 100, QImage::Format_RGB32);
+        photo.fill(Qt::blue);
+        canvas.setImage(photo);
+        QVERIFY(!canvas.hasMask());
+        QVERIFY(canvas.mask().isNull());
+
+        canvas.setBrushSize(20);
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(100, 100), QPointF(100, 100),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&canvas, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(100, 100), QPointF(100, 100),
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&canvas, &release);
+
+        QVERIFY(canvas.hasMask());
+        const QImage mask = canvas.mask();
+        QCOMPARE(mask.size(), photo.size());
+        QCOMPARE(qAlpha(mask.pixel(50, 50)), 0);   // painted: editable
+        QCOMPARE(qAlpha(mask.pixel(5, 5)), 255);   // untouched: kept
+
+        canvas.clearMask();
+        QVERIFY(canvas.mask().isNull());
+
+        // Clear Mask is undoable.
+        canvas.undo();
+        QVERIFY(canvas.hasMask());
+
+        // Right-drag over the whole stroke erases it.
+        auto send = [&](QEvent::Type type, Qt::MouseButton button, Qt::MouseButtons buttons) {
+            QMouseEvent e(type, QPointF(100, 100), QPointF(100, 100), button, buttons,
+                          Qt::NoModifier);
+            QCoreApplication::sendEvent(&canvas, &e);
+        };
+        canvas.setBrushSize(60);
+        send(QEvent::MouseButtonPress, Qt::RightButton, Qt::RightButton);
+        send(QEvent::MouseButtonRelease, Qt::RightButton, Qt::NoButton);
+        QVERIFY(!canvas.hasMask());
+
+        // ...and undoing the erase brings it back.
+        canvas.undo();
+        QVERIFY(canvas.hasMask());
+        QCOMPARE(qAlpha(canvas.mask().pixel(50, 50)), 0);
     }
 
     void settingsRoundTrip()
@@ -163,5 +276,5 @@ private slots:
     void cleanupTestCase() { QSettings().clear(); }
 };
 
-QTEST_GUILESS_MAIN(TestProviders)
+QTEST_MAIN(TestProviders)
 #include "tst_providers.moc"

@@ -8,7 +8,8 @@
 
 class QLabel;
 class QNetworkAccessManager;
-class GeneratePanel;
+class ImagePanel;
+class QTabWidget;
 class ImageProvider;
 
 class MainWindow : public QMainWindow
@@ -29,7 +30,11 @@ private:
 
     AppSettings m_settings;
     QNetworkAccessManager *m_network;
-    std::unique_ptr<ImageProvider> m_provider;
-    GeneratePanel *m_generatePanel;
+    // One provider per panel so each panel only sees its own results.
+    std::unique_ptr<ImageProvider> m_generateProvider;
+    std::unique_ptr<ImageProvider> m_editProvider;
+    QTabWidget *m_tabs;
+    ImagePanel *m_generatePanel;
+    ImagePanel *m_editPanel;
     QLabel *m_providerStatus;
 };

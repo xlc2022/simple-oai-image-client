@@ -12,12 +12,14 @@ qt_standard_project_setup()
 add_library(imageclient_core STATIC
     src/appsettings.cpp
     src/appsettings.h
-    src/generatepanel.cpp
-    src/generatepanel.h
+    src/imagepanel.cpp
+    src/imagepanel.h
     src/imageprovider.cpp
     src/imageprovider.h
     src/imageview.cpp
     src/imageview.h
+    src/maskcanvas.cpp
+    src/maskcanvas.h
     src/openaiprovider.cpp
     src/openaiprovider.h
     src/openrouterprovider.cpp
