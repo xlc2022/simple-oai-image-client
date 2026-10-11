@@ -12,6 +12,12 @@ qt_standard_project_setup()
 add_library(imageclient_core STATIC
     src/appsettings.cpp
     src/appsettings.h
+    src/historypanel.cpp
+    src/historypanel.h
+    src/historystore.cpp
+    src/historystore.h
+    src/imageactions.cpp
+    src/imageactions.h
     src/imagepanel.cpp
     src/imagepanel.h
     src/imageprovider.cpp

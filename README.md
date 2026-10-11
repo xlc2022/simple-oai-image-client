@@ -36,6 +36,17 @@ Generate tab sends a generated image here.
 With OpenRouter there is no mask: the photo and prompt are sent as a chat message and the
 model decides what to change.
 
+## History
+
+Every successful Generate or Edit is kept on the **History** tab: a searchable grid of
+past results with their prompt, provider, model and options. From there you can
+**Reuse Prompt** (fills in the prompt and options, and for edits the original photo),
+send an image to **Edit This…**, copy, save, open the entry's folder, or delete it.
+
+History lives in the app's data folder, one folder per entry
+(`~/.local/share/SimpleImageClient/SimpleImageClient/history` on Linux,
+`%APPDATA%\SimpleImageClient\SimpleImageClient\history` on Windows).
+
 ## Building
 
 Requires CMake 3.21+, a C++17 compiler and Qt 6.4 or newer (Core, Gui, Widgets, Network).

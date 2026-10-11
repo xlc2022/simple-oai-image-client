@@ -1,31 +1,29 @@
 #include "imagepanel.h"
 
+#include "imageactions.h"
+
 #include "imageprovider.h"
 #include "imageview.h"
 #include "maskcanvas.h"
 
 #include <QApplication>
-#include <QKeyEvent>
-#include <QMimeData>
 #include <QClipboard>
 #include <QComboBox>
-#include <QDateTime>
-#include <QDir>
 #include <QFileDialog>
 #include <QHBoxLayout>
+#include <QImageReader>
+#include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
 #include <QListWidget>
-#include <QMessageBox>
-#include <QFileInfo>
+#include <QMimeData>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QShortcut>
 #include <QSlider>
-#include <QSplitter>
-#include <QImageReader>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -313,6 +311,16 @@ void ImagePanel::useCurrent()
         emit editRequested(image);
 }
 
+void ImagePanel::loadRequest(const HistoryEntry &entry)
+{
+    m_prompt->setPlainText(entry.prompt);
+    if (const int i = m_size->findData(entry.size); i >= 0)
+        m_size->setCurrentIndex(i);
+    if (const int i = m_quality->findData(entry.quality); i >= 0)
+        m_quality->setCurrentIndex(i);
+    m_prompt->setFocus();
+}
+
 bool ImagePanel::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == m_prompt && event->type() == QEvent::KeyPress
@@ -376,10 +384,12 @@ void ImagePanel::startOrCancel()
     options.count = m_count->value();
 
     setBusy(true);
+    m_lastRequest = options;
     if (m_mode == Mode::Edit) {
         options.image = m_canvas->image();
         if (m_provider->supportsMask())
             options.mask = m_canvas->mask();
+        m_lastRequest = options;
         m_provider->edit(options);
     } else {
         m_provider->generate(options);
@@ -434,6 +444,17 @@ void ImagePanel::showResults(const QList<QImage> &images)
 
     setStatus(images.size() == 1 ? tr("Done in %1 s.").arg(seconds)
                                  : tr("%1 images in %2 s.").arg(images.size()).arg(seconds));
+
+    HistoryEntry entry;
+    entry.isEdit = m_mode == Mode::Edit;
+    entry.prompt = m_lastRequest.prompt;
+    entry.size = m_lastRequest.size;
+    entry.quality = m_lastRequest.quality;
+    if (m_provider) {
+        entry.provider = m_provider->displayName();
+        entry.model = m_provider->model();
+    }
+    emit completed(entry, images, m_lastRequest.image);
 }
 
 void ImagePanel::showError(const QString &message)
@@ -466,38 +487,10 @@ void ImagePanel::selectResult(int index)
 
 void ImagePanel::saveCurrent()
 {
-    const QImage image = m_view->image();
-    if (image.isNull())
-        return;
-
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-    const QString suggested = QDir(dir).filePath(
-        QStringLiteral("image-%1.png").arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss")));
-    const QString pngFilter = tr("PNG image (*.png)");
-    const QString jpegFilter = tr("JPEG image (*.jpg *.jpeg)");
-    QString selectedFilter = pngFilter;
-    QString path = QFileDialog::getSaveFileName(this, tr("Save Image"), suggested,
-                                                pngFilter + QStringLiteral(";;") + jpegFilter,
-                                                &selectedFilter);
-    if (path.isEmpty())
-        return;
-
-    // QImage::save picks the format from the suffix, so make it match the chosen filter.
-    const bool wantJpeg = selectedFilter == jpegFilter;
-    const QString suffix = QFileInfo(path).suffix().toLower();
-    const bool isJpeg = suffix == QLatin1String("jpg") || suffix == QLatin1String("jpeg");
-    if (wantJpeg != isJpeg || suffix.isEmpty()) {
-        if (!suffix.isEmpty())
-            path.chop(suffix.size() + 1);
-        path += wantJpeg ? QStringLiteral(".jpg") : QStringLiteral(".png");
-    }
-
-    if (!image.save(path))
-        QMessageBox::warning(this, tr("Save Image"), tr("Could not save to %1.").arg(path));
+    ImageActions::saveWithDialog(this, m_view->image());
 }
 
 void ImagePanel::copyCurrent()
 {
-    if (!m_view->image().isNull())
-        QApplication::clipboard()->setImage(m_view->image());
+    ImageActions::copyToClipboard(m_view->image());
 }
