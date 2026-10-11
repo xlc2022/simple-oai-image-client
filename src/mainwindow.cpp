@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 
+#include "generatepanel.h"
+#include "imageprovider.h"
 #include "settingsdialog.h"
 
 #include <QAction>
@@ -41,15 +43,19 @@ MainWindow::MainWindow(QWidget *parent)
                                     QApplication::applicationVersion()));
     });
 
-    m_placeholder = new QLabel(this);
-    m_placeholder->setAlignment(Qt::AlignCenter);
-    m_placeholder->setWordWrap(true);
-    setCentralWidget(m_placeholder);
+    m_generatePanel = new GeneratePanel(this);
+    setCentralWidget(m_generatePanel);
 
     m_providerStatus = new QLabel(this);
     statusBar()->addPermanentWidget(m_providerStatus);
 
-    refreshStatus();
+    applySettings();
+}
+
+MainWindow::~MainWindow()
+{
+    // The panel holds a QPointer to the provider; detach before the provider goes away.
+    m_generatePanel->setProvider(nullptr);
 }
 
 void MainWindow::promptForSetupIfNeeded()
@@ -62,16 +68,22 @@ void MainWindow::openSettings()
 {
     SettingsDialog dialog(m_network, this);
     if (dialog.exec() == QDialog::Accepted)
-        refreshStatus();
+        applySettings();
 }
 
-void MainWindow::refreshStatus()
+void MainWindow::applySettings()
 {
     const ProviderKind kind = m_settings.provider();
-    const bool hasKey = !m_settings.effectiveApiKey(kind).isEmpty();
-    const QString providerName = kind == ProviderKind::OpenRouter ? tr("OpenRouter") : tr("OpenAI");
+    const QString key = m_settings.effectiveApiKey(kind);
 
-    m_providerStatus->setText(tr("%1 · %2").arg(providerName, m_settings.model(kind)));
-    m_placeholder->setText(hasKey ? tr("Ready. Image generation and editing will appear here.")
-                                  : tr("Add your API key in File → Settings to get started."));
+    m_generatePanel->setProvider(nullptr);
+    m_provider = key.isEmpty()
+                     ? nullptr
+                     : ImageProvider::create(kind, m_network, key, m_settings.model(kind));
+    m_generatePanel->setProvider(m_provider.get());
+
+    const QString providerName = kind == ProviderKind::OpenRouter ? tr("OpenRouter") : tr("OpenAI");
+    m_providerStatus->setText(key.isEmpty()
+                                  ? tr("%1 · no API key").arg(providerName)
+                                  : tr("%1 · %2").arg(providerName, m_settings.model(kind)));
 }

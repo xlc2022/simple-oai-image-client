@@ -13,4 +13,8 @@ public:
     QString displayName() const override { return QStringLiteral("OpenAI"); }
     QUrl baseUrl() const override { return QUrl(QStringLiteral("https://api.openai.com/v1")); }
     QNetworkRequest connectionTestRequest() const override;
+
+    QNetworkRequest generateRequest() const override;
+    QByteArray generateBody(const GenerateOptions &options) const override;
+    ImageResult parseGenerateResponse(const QByteArray &body) const override;
 };

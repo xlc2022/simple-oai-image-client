@@ -15,4 +15,9 @@ public:
     QUrl baseUrl() const override { return QUrl(QStringLiteral("https://openrouter.ai/api/v1")); }
     QNetworkRequest makeRequest(const QString &path) const override;
     QNetworkRequest connectionTestRequest() const override;
+
+    QNetworkRequest generateRequest() const override;
+    bool supportsQuality() const override { return false; }
+    QByteArray generateBody(const GenerateOptions &options) const override;
+    ImageResult parseGenerateResponse(const QByteArray &body) const override;
 };
