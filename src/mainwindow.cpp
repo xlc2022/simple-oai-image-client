@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 
+#include "historypanel.h"
 #include "imagepanel.h"
 #include "imageprovider.h"
 #include "settingsdialog.h"
@@ -50,11 +51,37 @@ MainWindow::MainWindow(QWidget *parent)
     m_editPanel = new ImagePanel(ImagePanel::Mode::Edit, m_tabs);
     m_tabs->addTab(m_generatePanel, tr("&Generate"));
     m_tabs->addTab(m_editPanel, tr("&Edit"));
+    m_historyPanel = new HistoryPanel(&m_history, m_tabs);
+    m_tabs->addTab(m_historyPanel, tr("&History"));
     setCentralWidget(m_tabs);
 
-    connect(m_generatePanel, &ImagePanel::editRequested, this, [this](const QImage &image) {
+    auto openInEdit = [this](const QImage &image) {
         m_editPanel->setSourceImage(image);
         m_tabs->setCurrentWidget(m_editPanel);
+    };
+    connect(m_generatePanel, &ImagePanel::editRequested, this, openInEdit);
+    connect(m_historyPanel, &HistoryPanel::editRequested, this, openInEdit);
+
+    // Every finished request goes into History.
+    auto record = [this](const HistoryEntry &entry, const QList<QImage> &images,
+                         const QImage &source) {
+        const HistoryEntry stored = m_history.add(entry, images, source);
+        if (stored.id.isEmpty())
+            statusBar()->showMessage(tr("Couldn't save this result to History (%1).")
+                                         .arg(m_history.root()),
+                                     8000);
+        else
+            m_historyPanel->addEntry(stored);
+    };
+    connect(m_generatePanel, &ImagePanel::completed, this, record);
+    connect(m_editPanel, &ImagePanel::completed, this, record);
+
+    connect(m_historyPanel, &HistoryPanel::reuseRequested, this, [this](const HistoryEntry &entry) {
+        ImagePanel *panel = entry.isEdit ? m_editPanel : m_generatePanel;
+        if (entry.isEdit && !entry.sourceFile.isEmpty())
+            m_editPanel->setSourceImage(QImage(entry.sourceFile));
+        panel->loadRequest(entry);
+        m_tabs->setCurrentWidget(panel);
     });
 
     m_providerStatus = new QLabel(this);

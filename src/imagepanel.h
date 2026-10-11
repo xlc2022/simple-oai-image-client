@@ -6,6 +6,9 @@
 #include <QPointer>
 #include <QWidget>
 
+#include "historystore.h"
+#include "imageprovider.h"
+
 class QComboBox;
 class QLabel;
 class QListWidget;
@@ -15,7 +18,6 @@ class QPushButton;
 class QSlider;
 class QSpinBox;
 class QTimer;
-class ImageProvider;
 class ImageView;
 class MaskCanvas;
 
@@ -37,12 +39,17 @@ public:
     // Edit mode: replace the source photo (clears any mask).
     void setSourceImage(const QImage &image);
 
+    // Fills in the prompt and options from a past request.
+    void loadRequest(const HistoryEntry &entry);
+
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 signals:
     // Generate mode: the user wants to edit the shown result.
     void editRequested(const QImage &image);
+    // A request finished with images; `entry` describes the request (no id or paths yet).
+    void completed(const HistoryEntry &entry, const QList<QImage> &images, const QImage &source);
 
 private:
     QWidget *createSourceArea();
@@ -63,6 +70,7 @@ private:
     const Mode m_mode;
     QPointer<ImageProvider> m_provider;
     QList<QImage> m_results;
+    EditOptions m_lastRequest; // what the in-flight request asked for
     QElapsedTimer m_elapsed;
 
     QPlainTextEdit *m_prompt;

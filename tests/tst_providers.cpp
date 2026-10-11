@@ -7,9 +7,11 @@
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include "appsettings.h"
+#include "historystore.h"
 #include "imageprovider.h"
 #include "maskcanvas.h"
 
@@ -244,6 +246,55 @@ private slots:
         canvas.undo();
         QVERIFY(canvas.hasMask());
         QCOMPARE(qAlpha(canvas.mask().pixel(50, 50)), 0);
+    }
+
+    void historyRoundTrip()
+    {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        HistoryStore store(tmp.path());
+        QVERIFY(store.entries().isEmpty());
+
+        QImage a(300, 200, QImage::Format_RGB32);
+        a.fill(Qt::red);
+        QImage b(300, 200, QImage::Format_RGB32);
+        b.fill(Qt::green);
+
+        HistoryEntry first;
+        first.prompt = "a red thing";
+        first.provider = "OpenAI";
+        first.model = "gpt-image-1";
+        first.size = "auto";
+        first.quality = "high";
+        first.created = QDateTime::currentDateTime().addSecs(-60);
+        const HistoryEntry stored = store.add(first, {a, b});
+        QVERIFY(!stored.id.isEmpty());
+        QCOMPARE(stored.resultFiles.size(), 2);
+        QCOMPARE(QImage(stored.resultFiles[1]).pixelColor(0, 0), QColor(Qt::green));
+        QCOMPARE(QImage(stored.thumbnailFile).size(), QSize(192, 128));
+        QVERIFY(stored.sourceFile.isEmpty());
+
+        HistoryEntry edit;
+        edit.isEdit = true;
+        edit.prompt = "make it blue";
+        store.add(edit, {b}, a);
+
+        // A half-written entry (no entry.json) is ignored.
+        QDir(tmp.path()).mkpath("broken");
+
+        const QList<HistoryEntry> all = store.entries();
+        QCOMPARE(all.size(), 2);
+        QCOMPARE(all[0].prompt, QString("make it blue")); // newest first
+        QVERIFY(all[0].isEdit);
+        QVERIFY(!all[0].sourceFile.isEmpty());
+        QCOMPARE(all[1].prompt, QString("a red thing"));
+        QCOMPARE(all[1].quality, QString("high"));
+        QCOMPARE(all[1].model, QString("gpt-image-1"));
+
+        QVERIFY(!store.remove("../escape"));
+        QVERIFY(store.remove(all[1].id));
+        QCOMPARE(store.entries().size(), 1);
+        QVERIFY(store.add(HistoryEntry(), {}).id.isEmpty()); // nothing to store
     }
 
     void settingsRoundTrip()

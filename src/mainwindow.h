@@ -5,9 +5,11 @@
 #include <memory>
 
 #include "appsettings.h"
+#include "historystore.h"
 
 class QLabel;
 class QNetworkAccessManager;
+class HistoryPanel;
 class ImagePanel;
 class QTabWidget;
 class ImageProvider;
@@ -36,5 +38,7 @@ private:
     QTabWidget *m_tabs;
     ImagePanel *m_generatePanel;
     ImagePanel *m_editPanel;
+    HistoryStore m_history;
+    HistoryPanel *m_historyPanel;
     QLabel *m_providerStatus;
 };
